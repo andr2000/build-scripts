@@ -169,6 +169,27 @@ def build_populate_artifacts(cfg):
               repo_populate_manifest_get_fname(cfg))
 
 
+def build_upload_artifacts(cfg):
+    # if --relative (-R) is used as rsync argument then "/./" is needed
+    # in src path
+    args = cfg.get_args_rsync()
+    src_suffix = ' '
+    if ('R' in args) or ('relative' in args):
+        src_suffix = '/./ '
+
+    src = cfg.get_dir_build_artifacts()
+    dest = cfg.get_dir_rsync_artifacts()
+    cmd = 'rsync ' + args + ' ' + src + src_suffix + cfg.get_remote_rsync() + ':' + dest
+    print('Uploading build artifacts: ' + cmd)
+    bash_run_command(cmd)
+
+    src = cfg.get_dir_yocto_downloads()
+    dest = cfg.get_dir_rsync_downloads()
+    cmd = 'rsync ' + cfg.get_args_rsync() + ' ' + src + src_suffix + cfg.get_remote_rsync() + ':' + dest
+    print('Uploading downloads: ' + cmd)
+    bash_run_command(cmd)
+
+
 def build_init(cfg):
     repo_init(cfg)
     repo_sync()
@@ -214,7 +235,6 @@ def build_run(cfg):
     build_populate_artifacts(cfg)
     buildhistory_commit(cfg)
 
-
 def build_print_target(build_type, cfg):
     print('Type: %s product: %s machine: %s' % (build_type,
                                                 cfg.get_opt_product_type(), cfg.get_opt_machine_type()))
@@ -240,6 +260,11 @@ def build_reconstr(cfg):
 def main():
     try:
         cfg = build_conf.BuildConf()
+
+        if cfg.get_opt_run_rsync():
+            build_upload_artifacts(cfg)
+            return 0
+
         action = {
             build_conf.TYPE_DAILY: build_daily,
             build_conf.TYPE_PUSH: build_push,

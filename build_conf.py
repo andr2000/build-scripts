@@ -47,6 +47,17 @@ CFG_OPTION_WORKSPACE_DIR = "workspace_base_dir"
 CFG_OPTION_STORAGE_DIR = "workspace_storage_base_dir"
 CFG_OPTION_CACHE_DIR = "workspace_cache_base_dir"
 
+# rsync configuration:
+#     args - exact arguments passed to rsync, for example -avzhR
+#     remote - remote host with user-name
+#     artifacts_dir - remote directory for artifacts
+#     downloads_dir - remote directory for downloads
+
+CFG_SECTION_RSYNC = "rsync"
+CFG_OPTION_RSYNC_ARGS = "args"
+CFG_OPTION_RSYNC_REMOTE = "remote"
+CFG_OPTION_RSYNC_ARTIFACTS_DIR = "artifacts_dir"
+CFG_OPTION_RSYNC_DOWNLOADS_DIR = "downloads_dir"
 
 class BuildConf(object):
     def get_dir_build(self):
@@ -71,6 +82,18 @@ class BuildConf(object):
 
     def get_dir_xt_manifest(self):
         return os.path.join(self.get_dir_storage(), 'build-manifest')
+
+    def get_args_rsync(self):
+        return self.__rsync_args
+
+    def get_remote_rsync(self):
+        return self.__rsync_remote
+
+    def get_dir_rsync_artifacts(self):
+        return self.__rsync_artifacts_dir
+
+    def get_dir_rsync_downloads(self):
+        return self.__rsync_downloads_dir
 
     def get_dir_buildhistory_rel(self):
         return self.__buildhistory_rel_dir
@@ -137,6 +160,9 @@ class BuildConf(object):
     def get_opt_machine_type(self):
         return self.__args.machine_type
 
+    def get_opt_run_rsync(self):
+        return self.__args.rsync
+
     @staticmethod
     def setup_dir(path, remove=False, silent=False):
         # remove the existing one if any
@@ -156,6 +182,18 @@ class BuildConf(object):
 
     def __parse_args(self):
         parser = argparse.ArgumentParser()
+        parser.add_argument('--run-rsync', action='store_true',
+                            dest='rsync', required=False, default=False,
+                            help="Copy artifacts and downloads to the remote server and exit")
+        parser.add_argument('--config',
+                            dest='config_file', required=True,
+                            help="Use configuration file for tuning")
+        known_args, other_args = parser.parse_known_args()
+        # if rsync is requested, then we don't need any other argument
+        if known_args.rsync:
+            self.__args = parser.parse_args()
+            return
+
         required = parser.add_argument_group('required arguments')
         required.add_argument('--build-type', choices=TYPE,
                               dest='build_type', required=True, help='Build type')
@@ -181,9 +219,6 @@ class BuildConf(object):
         parser.add_argument('--continue-build', action='store_true',
                             dest='continue_build', required=False, default=False,
                             help='Continue existing build if any, do not clean up')
-        parser.add_argument('--config',
-                            dest='config_file', required=False,
-                            help="Use configuration file for tuning")
         known_args, other_args = parser.parse_known_args()
         # now that we know which build it is we can add appropriate options
         if known_args.build_type == TYPE_RECONSTR:
@@ -228,15 +263,26 @@ class BuildConf(object):
             uri = config.get(CFG_SECTION_GIT, CFG_OPTION_XT_MANIFEST, 1)
             if uri:
                 self.__xt_manifest_uri = uri
+            # get rsync configuration
+            if self.get_opt_run_rsync():
+                self.__rsync_args = config.get(CFG_SECTION_RSYNC,
+                                               CFG_OPTION_RSYNC_ARGS, 1)
+                self.__rsync_remote = config.get(CFG_SECTION_RSYNC,
+                                                 CFG_OPTION_RSYNC_REMOTE, 1)
+                self.__rsync_artifacts_dir = config.get(CFG_SECTION_RSYNC,
+                                                        CFG_OPTION_RSYNC_ARTIFACTS_DIR, 1)
+                self.__rsync_downloads_dir = config.get(CFG_SECTION_RSYNC,
+                                                        CFG_OPTION_RSYNC_DOWNLOADS_DIR, 1)
 
     def __init__(self):
         # get build arguments
         self.__parse_args()
         self.set_work_config()
-        self.__buildhistory_rel_dir = os.path.join(self.get_opt_build_type(),
-                                                   datetime.date.today().strftime('%Y-%m-%d'),
-                                                   self.get_opt_product_type(), self.get_opt_machine_type(),
-                                                   datetime.datetime.now().strftime('%H-%M-%S'))
-        BuildConf.setup_dir(self.get_dir_build(), not self.__args.continue_build)
-        BuildConf.setup_dir(self.get_dir_storage())
-        BuildConf.setup_dir(self.get_dir_yocto_sstate(), not self.__args.continue_build)
+        if not self.get_opt_run_rsync():
+            self.__buildhistory_rel_dir = os.path.join(self.get_opt_build_type(),
+                                                       datetime.date.today().strftime('%Y-%m-%d'),
+                                                       self.get_opt_product_type(), self.get_opt_machine_type(),
+                                                       datetime.datetime.now().strftime('%H-%M-%S'))
+            BuildConf.setup_dir(self.get_dir_build(), not self.__args.continue_build)
+            BuildConf.setup_dir(self.get_dir_storage())
+            BuildConf.setup_dir(self.get_dir_yocto_sstate(), not self.__args.continue_build)
